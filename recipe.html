@@ -1,0 +1,1118 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="author" content="Saran Tanpituckpong">
+<title>Loading...</title>
+<link rel="shortcut icon" type="image/x-icon" href="img/favicon.ico">
+<link href="css/bootstrap.css" rel="stylesheet" type="text/css">
+<link href="css/bootstrap-theme.css" rel="stylesheet" type="text/css">
+<link href="css/uploadify.css" rel="stylesheet" type="text/css">
+<script src="js/jquery-2.0.3.js"></script>
+<script src="js/jquery.uploadify.js"></script>
+<script src="js/bootstrap.js"></script>
+<script src="js/form.js"></script>
+<script>
+// Get querystring
+var queryString = document.location.search.replace( '?', '' ).split( '&' );
+var queryObj = {};
+$.each(queryString, function(i, v) {
+	  var name = v.split('=')[0];
+	  var value = v.split('=')[1];
+	  queryObj[name] = value;
+});
+$(document).ready(function() {
+	var sid;
+	$("a[href=\"#\"]").click(function(e) {
+		e.preventDefault();
+	});
+	$("#userMenu").hide();
+	$("#navbarLoginButton").attr("disabled", "disabled");
+	$("#navbarRegisterButton").attr("disabled", "disbled");
+	$("#newCommentPanel").hide();
+	$(window).scroll(function() {
+		if($(this).scrollTop() > 200) {
+			$("#goTop").fadeIn();
+		} else {
+			$("#goTop").fadeOut();
+		}
+	});
+	$("#goTop a").click(function() {
+		$("html, body").animate({
+			scrollTop: 0
+		});
+	});
+	
+	// Get recipe content
+	var getRecipe = function(id) {
+		$("#recipePanel").hide();
+		$("#loadingIndicator").show();
+		$.get("getrecipe.php", {"id": id}, function(data) {
+			if(data.result == "success") {
+				$.get("checkrecipepermission.php", {"id": id}, function(data) {
+					if(data.result) {
+						$("#recipeControl").fadeIn();
+					} else {
+						$("#recipeControl").hide();
+					}
+				}, "json");
+				document.title = data.name;
+				$recipePanel = $("#recipePanel");
+				$recipePanel.find(".panel-title").text(data.name);
+				$recipePanel.find(".panel-body img").attr("src", "viewrecipeimage.php?id=" + id + "&nocache=" + (new Date()).getTime());
+				$recipePanel.find(".panel-body p").html(data.description);
+				$recipePanel.find("ol").empty();
+				$.each(data.steps, function(i, v) {
+					$listItem = $("<li></li>");
+					$listItem.html(v);
+					$listItem.appendTo($recipePanel.find("ol"));
+				});
+				$("#loadingIndicator").hide();
+				$recipePanel.fadeIn();
+			} else {
+				document.title = "No Content";
+				$("#loadingIndicator").hide();
+				$("#recipeEmptyPanel").fadeIn();
+			}
+		}, "json");
+	};
+	
+	// Get recipe comment.
+	var getRecipeComment = function(id) {
+		$("#commentLoadingIndicator").show();
+		$commentPanelTemplate = $("#commentPanelTemplate");
+		$commentContent = $("#commentContent");
+		$commentContent.empty();
+		$.get("getcomment.php", {"id": id}, function(data) {
+			$("#commentLoadingIndicator").hide();
+			if(data.result == "success") {
+				if(data.comments.length > 0) {
+					$("#commentEmptyPanel").hide();
+					$.each(data.comments, function(i, v) {
+						$commentPanelItem = $commentPanelTemplate.clone(true);
+						$commentPanelItem.find(".panel-title > span").text(v.fullname);
+						$commentPanelItem.find(".panel-body").html(v.comment);
+						$commentPanelItem.fadeIn();
+						$commentContent.append($commentPanelItem);
+					});
+				} else {
+					$("#commentEmptyPanel").fadeIn();
+				}
+			}
+		});
+	};
+	
+	if("id" in queryObj) {
+		var id = queryObj.id;
+		getRecipe(id);
+		getRecipeComment(id);
+	} else {
+		document.title = "No Content";
+		$("#loadingIndicator").hide();
+		$("#recipeEmptyPanel").show();
+		$("#commentLoadingIndicator").hide();
+		$("#commentEmptyPanel").show();
+	}
+	
+	// Check session
+	$.getJSON("getsession.php", function(data) {
+		if(data.status == "on") {
+			$("#myRecipeLink").show();
+			$("#fullname").text(data.fullname);
+			$("#guestMenu").hide();
+			$("#userMenu").show();
+			if("id" in queryObj) {
+				$.get("getrecipe.php", {"id": id}, function(data) {
+					if(data.result == "success") {
+						$("#newCommentPanel").fadeIn();
+					}
+				}, "json");
+			}
+			sid = data.sid;
+		} else {
+			$("#navbarLoginButton").removeAttr("disabled");
+			$("#navbarRegisterButton").removeAttr("disabled");
+			$("#newCommentPanel").hide();
+		}
+	});
+	
+	// User Menu
+	$("#logoutMenu").click(function(e) {
+		$loadingModal = $("#loadingModal");
+		$loadingModal.find("#loadingMsg").text("Logging out...");
+		$loadingModal.modal("show");
+		$.get("logout.php", function() {
+			$loadingModal.modal("hide");
+			$("#myRecipeLink").hide();
+			$("#fullname").empty();
+			$("#userMenu").hide();
+			$("#guestMenu").show();
+			$("#navbarLoginButton").removeAttr("disabled");
+			$("#navbarRegisterButton").removeAttr("disabled");
+			$("#recipeControl").fadeOut();
+			$("#newCommentPanel").fadeOut();
+		});
+	});
+	
+	// Login Action
+	var loginUserClosed = true;
+	$("#loginModal").on("shown.bs.modal", function() {
+		$("#loginUsername").focus();
+	});
+	$("#loginModal").on("hidden.bs.modal", function() {
+		if(loginUserClosed) {
+			clearLoginFormError();
+			resetLoginForm();
+		}
+	});
+	$("#loginForm").submit(function(e) {
+		e.preventDefault();
+		var valid = validateLoginForm();
+		if(valid) {
+			var $loadingModal = $("#loadingModal");
+			$loadingModal.find("#loadingMsg").text("Logging in...");
+			$loadingModal.modal("show");
+			loginUserClosed = false;
+			$("#loginModal").modal("hide");
+			$.post("login.php", $("#loginForm").serialize(), function(data) {
+				loginUserClosed = true;
+				$loadingModal.modal("hide");
+				if(data.result == "incorrect_user") {
+					$("#loginModal").modal("show");
+					$("#loginUsername").parent("div.form-group").addClass("has-error");
+					$("#loginUsernameHelper").text("Incorrect username.");
+					$("#loginUsernameHelper").show();
+				} else if(data.result == "incorrect_pass") {
+					$("#loginModal").modal("show");
+					$("#loginPassword").parent("div.form-group").addClass("has-error");
+					$("#loginPasswordHelper").text("Incorrect password.");
+					$("#loginPasswordHelper").show();
+				} else if(data.result == "correct") {
+					clearLoginFormError();
+					resetLoginForm();
+					$("#myRecipeLink").show();
+					$("#fullname").text(data.fullname);
+					$("#guestMenu").hide();
+					$("#userMenu").show();
+					$("#loginModal").modal("hide");
+					$("#navbarLoginButton").attr("disabled");
+					$("#navbarRegisterButton").attr("disabled");
+					if("id" in queryObj) {
+						$.get("getrecipe.php", {"id": id}, function(data) {
+							if(data.result == "success") {
+								$("#newCommentPanel").fadeIn();
+							}
+						}, "json");
+					}
+					sid = data.sid;
+					$.get("checkrecipepermission.php", {"id": id}, function(data) {
+						if(data.result) {
+							$("#recipeControl").fadeIn();
+						} else {
+							$("#recipeControl").hide();
+						}
+					}, "json");
+				}
+			}, "json");
+		}
+	});
+	
+	// Register Action
+	var registerUserClosed = true;
+	$("#registerModal").on("shown.bs.modal", function() {
+		$("#registerUsername").focus();
+	});
+	$("#registerModal").on("hidden.bs.modal", function() {
+		if(registerUserClosed) {
+			clearRegisterFormError();
+			resetRegisterForm();
+		}
+	});
+	$("#registerUsername").blur(function(e) {
+		checkRegisterUsername();
+	});
+	$("#registerForm").submit(function(e) {
+		e.preventDefault();
+		var valid = validateRegisterForm();
+		if(valid) {
+			var $loadingModal = $("#loadingModal");
+			$loadingModal.find("#loadingMsg").text("Creating a user...");
+			$loadingModal.modal("show");
+			registerUserClosed = false;
+			$("#registerModal").modal("hide");
+			$.post("register.php", $("#registerForm").serialize(), function(data) {
+				var isSuccessful = true;
+				registerUserClosed = true;
+				$loadingModal.modal("hide");
+				if(data.result == "success") {
+					clearRegisterFormError();
+					resetRegisterForm();
+					$("#fullname").text(data.fullname);
+					$("#guestMenu").hide();
+					$("#userMenu").show();
+				} else if(data.result == "fail") {
+					$("#registerModal").modal("show");
+					$("#resultTitle").html("<font color=\"red\">Error</font>");
+					$("#resultBody").html("Cannot create a new user in database.");
+					isSuccessful = false;
+				} else {
+					$("#registerModal").modal("show");
+					$("#resultTitle").html("<font color=\"#FF6600\">Incomplete</font>");
+					$("#resultBody").html(data.result);
+					isSuccessful = false;
+				}
+				if(!isSuccessful) {
+					$("#resultModal").modal({
+						backdrop: "static",
+						show: true
+					});
+				}
+			}, "json");
+		}
+	});
+	
+	// Edit Profile Action
+	var editProfileUserClosed = true;
+	$("#editProfileModal").on("shown.bs.modal", function() {
+		$("body").addClass("modal-open");
+	});
+	$("#editProfileModal").on("hidden.bs.modal", function() {
+		$("body").removeClass("modal-open");
+		if(editProfileUserClosed) {
+			clearEditProfileFormError();
+			resetEditProfileForm();
+		}
+	});
+	$("#editProfileMenu").click(function(e) {
+		loadProfile();
+	});
+	$("#editProfileForm").submit(function(e) {
+		e.preventDefault();
+		var valid = validateEditProfileForm();
+		if(valid) {
+			var $loadingModal = $("#loadingModal");
+			$loadingModal.find("#loadingMsg").text("Editing user profile...");
+			$loadingModal.modal("show");
+			editProfileUserClosed = false;
+			$("#editProfileModal").modal("hide");
+			$.post("editprofile.php", $("#editProfileForm").serialize(), function(data) {
+				var isSuccessful = true;
+				editProfileUserClosed = true;
+				$loadingModal.modal("hide");
+				if(data.result == "success") {
+					clearEditProfileFormError();
+					resetEditProfileForm();
+					$("#fullname").text(data.fullname);
+				} else if(data.result == "fail") {
+					$("#editProfileModal").modal("show");
+					$("#resultTitle").html("<font color=\"red\">Error</font>");
+					$("#resultBody").html("Cannot edit user profile in database.");
+					isSuccessful = false;
+				} else {
+					$("#editProfileModal").modal("show");
+					$("#resultTitle").html("<font color=\"#FF6600\">Incomplete</font>");
+					$("#resultBody").html(data.result);
+					isSuccessful = false;
+				}
+				if(!isSuccessful) {
+					$("#resultModal").modal({
+						backdrop: "static",
+						show: true
+					});
+				}
+			}, "json");
+		}
+	});
+	
+	// Change Password Action
+	var changePasswordUserClosed = true;
+	$("#changePasswordModal").on("shown.bs.modal", function() {
+		$("#changePasswordNewPassword").focus();
+	});
+	$("#changePasswordModal").on("hidden.bs.modal", function() {
+		if(changePasswordUserClosed) {
+			clearChangePasswordFormError();
+			resetChangePasswordForm();
+		}
+	});
+	$("#changePasswordMenu").click(function(e) {
+		$("#changePasswordModal").modal({
+			backdrop: "static",
+			show: true
+		});
+	});
+	$("#changePasswordForm").submit(function(e) {
+		e.preventDefault();
+		var valid = validateChangePasswordForm();
+		if(valid) {
+			var $loadingModal = $("#loadingModal");
+			$loadingModal.find("#loadingMsg").text("Changing user password...");
+			$loadingModal.modal("show");
+			changePasswordUserClosed = false;
+			$("#changePasswordModal").modal("hide");
+			$.post("changepassword.php", $("#changePasswordForm").serialize(), function(data) {
+				var isSuccessful = true;
+				changePasswordUserClosed = true;
+				if(data.result != "success") {
+					$loadingModal.modal("hide");
+				}
+				if(data.result == "success") {
+					clearChangePasswordFormError();
+					resetChangePasswordForm();
+					// Logout
+					$("#logoutMenu").click();
+				} else if(data.result == "fail") {
+					$("#changePasswordModal").modal("show");
+					$("#resultTitle").html("<font color=\"red\">Error</font>");
+					$("#resultBody").html("Cannot change user password in database.");
+					isSuccessful = false;
+				} else if(data.result == "incorrect_pass") {
+					$("#changePasswordModal").modal("show");
+					$("#changePasswordOldPassword").parent("div.form-group").addClass("has-error");
+					$("#changePasswordOldPasswordHelper").html("Incorrect old password.");
+					$("#changePasswordOldPasswordHelper").show();
+				}else {
+					$("#changePasswordModal").modal("show");
+					$("#resultTitle").html("<font color=\"#FF6600\">Incomplete</font>");
+					$("#resultBody").html(data.result);
+					isSuccessful = false;
+				}
+				if(!isSuccessful) {
+					$("#resultModal").modal({
+						backdrop: "static",
+						show: true
+					});
+				}
+			}, "json");
+		}
+	});
+	
+	// Edit Recipe Action
+	function loadRecipe(id) { // Load Edit Recipe Form Data
+		$loadingModal = $("#loadingModal");
+		$loadingModal.find("#loadingMsg").text("Loading recipe...");
+		$loadingModal.modal("show");
+		$.get("getrecipe.php", {
+			"id": id,
+			"isEditing": 1
+		}, function(data) {
+			$loadingModal.modal("hide");
+			if(Object.keys(data).length > 0) {
+				$("#recipeName").val(data.name);
+				$("#recipeDescription").val(data.description);
+				$.each(data.steps, function(i, v) {
+					var $recipeStepListItem = $("<li></li>").append($("<div></div>").html(v));
+					// Dynamic editing.
+					$recipeStepListItem.children("div:first").click(function() {
+						var itemContent = $(this).html().replace(/\n/g, "").replace(/<br>/g, "\n").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+						$(this).hide();
+						$editTextarea = $("<textarea></textarea>");
+						$editTextarea.val(itemContent);
+						$editTextarea.addClass("form-control");
+						$editTextarea.css({
+							"resize": "none",
+							"display": "inline",
+							"vertical-align": "top"
+						});
+						$editTextarea.keyup(function(e) {
+							if(e.keyCode == 27) {
+								$recipeStepListItem.children("div:first").show();
+								$(this).parent("div").remove();
+								e.stopPropagation();
+							}
+						});
+						$editTextarea.blur(function(e) {
+							$recipeStepListItem.children("div:first").html($(this).val().replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>"));
+							$recipeStepListItem.children("div:first").show();
+							$(this).parent("div").remove();
+						});
+						$("<div></div>").append($editTextarea).insertAfter(this);
+						$editTextarea.focus();
+					});
+					
+					$recipeStepListItem.children("div:first").tooltip({
+						title: "Click to edit.",
+						placement: "left"
+					});
+					$recipeStepListItem.css("word-wrap", "break-word");
+					var $recipeStepRemove = $("<button class='btn btn-default' type='button'><span class='glyphicon glyphicon-minus'></span> Remove Step</button>");
+					$recipeStepRemove.click(function(e) {
+						$(this).parent("li").remove();
+						if($("#recipeStepList").children("li").size() == 0) {
+							$("#recipeStepEmpty").show();
+						}
+					});
+					$recipeStepListItem.append(" ").append($recipeStepRemove).appendTo($("#recipeStepList"));
+				});
+				$("#recipeStepEmpty").hide();
+				$("#editRecipeModal").modal({
+					backdrop: "static",
+					show: true
+				});
+			} else {
+				$("#resultTitle").html("<font color=\"red\">Error</font>");
+				$("#resultBody").html("Cannot retrive user profile data.");
+				$("#resultModal").modal({
+					backdrop: "static",
+					show: true
+				});
+			}
+		}, "json");
+	}
+	$("#menuEditRecipeButton").click(function() {
+		loadRecipe(queryObj.id);
+	});
+	var isDialogOpend = false;
+	$("#recipePicture").uploadify({
+		"auto": false,
+		"multi": false,
+		"buttonText": "Select Image...",
+		"method": "post",
+		"queueSizeLimit": 1,
+		"uploader": "editrecipe.php",
+		"swf": "media/uploadify.swf",
+		"fileTypeDesc": "Image Files",
+        "fileTypeExts": "*.gif; *.jpg; *jpeg; *.png",
+		"fileSizeLimit": "1MB",
+		"overrideEvents": ["onSelectError", "onDialogClose"],
+		"onDialogOpen": function() {
+			isDialogOpend = true;
+		},
+		"onDialogClose": function() {
+			isDialogOpend = false;
+		},
+		"onSelectError": function(file, errCode, errMsg) {
+			if(errCode == -100) {
+				$recipePictureHelper = $("#recipePictureHelper");
+				$recipePictureHelper.css("color", "#B94A48");
+				$recipePictureHelper.html("Cannot upload more than one file.");
+				$recipePictureHelper.show();
+			}
+		},
+		"onCancel": function() {
+			$recipePictureHelper = $("#recipePictureHelper");
+			$recipePictureHelper.empty();
+			$recipePictureHelper.hide();
+		}
+	});
+	$("#editRecipeModal").on("shown.bs.modal", function() {
+		$("body").addClass("modal-open");
+	});
+	$("#editRecipeModal").on("hidden.bs.modal", function() {
+		$("body").removeClass("modal-open");
+		clearEditRecipeFormError();
+		resetEditRecipeForm();
+	});
+	$("#editRecipeModal").on("hide.bs.modal", function(e) {
+		if(isDialogOpend) {
+			e.preventDefault();
+		} else {
+			$("#recipePicture").uploadify("cancel", "*");
+		}
+	});
+	$("#recipeStepAdd").click(function(e) {
+		var $recipeStep = $("#recipeStep");
+		var $recipeStepList = $("#recipeStepList");
+		var $recipeStepHelper = $("#recipeStepHelper");
+		var $recipeStepListHelper = $("#recipeStepListHelper");
+		$recipeStep.parent("div.form-group").removeClass("has-error");
+		$recipeStepHelper.empty();
+		$recipeStepHelper.hide();
+		if($recipeStep.val().length > 0) {
+			$recipeStepList.parent("div.form-group").removeClass("has-error");
+			$recipeStepListHelper.empty();
+			$recipeStepListHelper.hide();
+			var $step = $recipeStep.val().replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
+			var $recipeStepListItem = $("<li></li>").append($("<div></div>").html($step));
+			// Dynamic Editing.
+			$recipeStepListItem.children("div:first").click(function() {
+				var itemContent = $(this).html().replace(/<br>/g, "\n").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+				$(this).hide();
+				$editTextarea = $("<textarea></textarea>");
+				$editTextarea.val(itemContent);
+				$editTextarea.addClass("form-control");
+				$editTextarea.css({
+					"resize": "none",
+					"display": "inline",
+					"vertical-align": "top"
+				});
+				$editTextarea.keyup(function(e) {
+					if(e.keyCode == 27) {
+						$recipeStepListItem.children("div:first").show();
+						$(this).parent("div").remove();
+						e.stopPropagation();
+					}
+				});
+				$editTextarea.blur(function(e) {
+					$recipeStepListItem.children("div:first").html($(this).val().replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>"));
+					$recipeStepListItem.children("div:first").show();
+					$(this).parent("div").remove();
+				});
+				$("<div></div>").append($editTextarea).insertAfter(this);
+				$editTextarea.focus();
+			});
+			
+			$recipeStepListItem.children("div:first").tooltip({
+				title: "Click to edit.",
+				placement: "left"
+			});
+			$recipeStepListItem.css("word-wrap", "break-word");
+			var $recipeStepRemove = $("<button class='btn btn-default' type='button'><span class='glyphicon glyphicon-minus'></span> Remove Step</button>");
+			$recipeStepRemove.click(function(e) {
+				$(this).parent("li").remove();
+				if($("#recipeStepList").children("li").size() == 0) {
+					$("#recipeStepEmpty").show();
+				}
+			});
+			$recipeStepListItem.append(" ").append($recipeStepRemove).appendTo($("#recipeStepList"));
+			$("#recipeStep").val("");
+		} else {
+			$recipeStep.parent("div.form-group").addClass("has-error");
+			$recipeStepHelper.text("Please enter a recipe step.");
+			$recipeStepHelper.show();
+		}
+		if($("#recipeStepList").children("li").size() > 0) {
+			$("#recipeStepEmpty").hide();
+		}
+	});
+	$("#editRecipeForm").submit(function(e) {
+		e.preventDefault();
+		var valid = validateEditRecipeForm();
+		if(valid) {
+			$("#editRecipeModal").animate({
+				scrollTop: 0
+			}, function() {
+				var $loadingModal = $("#loadingModal");
+				$loadingModal.find("#loadingMsg").text("Editing the recipe...");
+				$loadingModal.modal("show");
+				var $recipePicture = $("#recipePicture");
+				var recipeName = $("#recipeName").val();
+				var recipeDescription = $("#recipeDescription").val();
+				var recipeStepList = [];
+				$("#recipeStepList").find("li > div:first-child").each(function() {
+					recipeStepList.push($(this).html());
+				});
+				var formData = {
+					"sid": sid,
+					"id": queryObj.id,
+					"recipeName": recipeName,
+					"recipeDescription": recipeDescription,
+					"recipeStepList[]": recipeStepList
+				}
+				var hasRecipePicture = $("#recipePicture-queue > div").size() == 1;
+				if(hasRecipePicture) {
+					$recipePicture.uploadify("settings", "formData", formData);
+					$recipePicture.uploadify("settings", "onUploadSuccess", function(file, data, response) {
+						$loadingModal.modal("hide");
+						var isSuccessful = true;
+						data = $.parseJSON(data);
+						if(data.result == "success") {
+							$("#editRecipeModal").modal("hide");
+							getRecipe(queryObj.id);
+						} else if(data.result == "fail") {
+							$("#resultTitle").html("<font color=\"red\">Error</font>");
+							$("#resultBody").html("Cannot edit the recipe in database.");
+							isSuccessful = false;
+						} else {
+							$("#resultTitle").html("<font color=\"#FF6600\">Incomplete</font>");
+							$("#resultBody").html(data.result);
+							isSuccessful = false;
+						}
+						if(!isSuccessful) {
+							$("#resultModal").modal({
+								backdrop: "static",
+								show: true
+							});
+						}
+					});
+					$recipePicture.uploadify("upload", "*");
+				} else {
+					$.post("editrecipe.php", formData, function(data) {
+						$loadingModal.modal("hide");
+						var isSuccessful = true;
+						if(data.result == "success") {
+							$("#editRecipeModal").modal("hide");
+							getRecipe(queryObj.id);
+						} else if(data.result == "fail") {
+							$("#resultTitle").html("<font color=\"red\">Error</font>");
+							$("#resultBody").html("Cannot edit the recipe in database.");
+							isSuccessful = false;
+						} else {
+							$("#resultTitle").html("<font color=\"#FF6600\">Incomplete</font>");
+							$("#resultBody").html(data.result);
+							isSuccessful = false;
+						}
+						if(!isSuccessful) {
+							$("#resultModal").modal({
+								backdrop: "static",
+								show: true
+							});
+						}
+					}, "json");
+				}
+			});
+		}
+	});
+	
+	// Remove Recipe Action
+	var confirmRemove = function(callback) {
+		var result = false;
+		$("#confirmModal").off("hidden.bs.modal");
+		$("#confirmModal").on("hidden.bs.modal", function() {
+			callback(result);
+		});
+		$("#removeRecipeAcceptButton").click(function() {
+			result = true;
+			$("#confirmModal").modal("hide");
+		});
+		$("#confirmModal").modal("show");
+	};
+	$("#menuRemoveRecipeButton").click(function() {
+		confirmRemove(function(result) {
+			if(result) {
+				var $loadingModal = $("#loadingModal");
+				$loadingModal.find("#loadingMsg").text("Removing the recipe...");
+				$loadingModal.modal("show");
+				$.post("removerecipe.php", {"id": queryObj.id}, function(data) {
+					$loadingModal.modal("hide");
+					if(data.result == "success") {
+						getRecipe(queryObj.id);
+					} else {
+						$("#resultTitle").html("<font color=\"red\">Error</font>");
+						$("#resultBody").html("Cannot remove the recipe from database.");
+						$("#resultModal").modal({
+							backdrop: "static",
+							show: true
+						});
+					}
+				});
+			}
+		});
+	});
+	
+	// New Comment
+	$("#commentForm").submit(function(e) {
+		e.preventDefault();
+		$comment = $("#comment");
+		$commentHelper = $("#commentHelper");
+		if($comment.val().length > 0) {
+			$commentHelper.empty();
+			$commentHelper.parent(".form-group").removeClass("has-error");
+			$commentHelper.hide();
+			var $loadingModal = $("#loadingModal");
+			$loadingModal.find("#loadingMsg").text("Posting a new recipe comment...");
+			$loadingModal.modal("show");
+			$.post("newcomment.php", {
+				"id": queryObj.id,
+				"comment": $comment.val()
+			}, function(data) {
+				var isSuccessful = true;
+				$("#commentEmptyPanel").hide();
+				$loadingModal.modal("hide");
+				if(data.result == "success") {
+					$comment.val("");
+					getRecipeComment(queryObj.id);
+				} else if(data.result == "fail") {
+					$("#resultTitle").html("<font color=\"red\">Error</font>");
+					$("#resultBody").html("Cannot add a new recipe comment into database.");
+					isSuccessful = false;
+				} else {
+					$("#resultTitle").html("<font color=\"#FF6600\">Incomplete</font>");
+					$("#resultBody").html(data.result);
+					isSuccessful = false;
+				}
+				if(!isSuccessful) {
+					$("#resultModal").modal({
+						backdrop: "static",
+						show: true
+					});
+				}
+			});
+		} else {
+			$commentHelper.text("Please enter recipe comment.");
+			$commentHelper.parent(".form-group").addClass("has-error");
+			$commentHelper.show();
+		}
+	});
+});
+</script>
+</head>
+
+<body>
+<!-- Navigation Bar -->
+<nav class="navbar navbar-default" role="navigation">
+	<div class="navbar-header">
+		<a class="navbar-brand" href="index.html" id="siteLink">Cooking Community</a>
+	</div>
+	<div class="collapse navbar-collapse">
+		<div id="userMenu" class="btn-group navbar-right" style="margin-left: 10px;">
+			<button type="button" class="btn btn-default navbar-btn dropdown-toggle" data-toggle="dropdown">
+			<span class="glyphicon glyphicon-user"></span> <span id="fullname"></span> <span class="caret"></span>
+			</button>
+			<ul class="dropdown-menu" role="menu">
+			<li><a href="#" id="editProfileMenu"><span class="glyphicon glyphicon-edit"></span> Edit Profile</a></li>
+			<li><a href="#" id="changePasswordMenu"><span class="glyphicon glyphicon-cog"></span> Change Password</a></li>
+			<li class="divider"></li>
+			<li><a href="#" id="logoutMenu"><span class="glyphicon glyphicon-log-out"></span> Logout</a></li>
+			</ul>
+		</div>
+		<div id="guestMenu">
+			<button id="navbarRegisterButton" class="btn btn-default navbar-btn navbar-right" style="margin-left: 10px;" data-toggle="modal" data-backdrop="static" data-target="#registerModal"><span class="glyphicon glyphicon-pencil"></span> Register</button>
+			<button id="navbarLoginButton" class="btn btn-primary navbar-btn navbar-right" data-toggle="modal" data-backdrop="static" data-target="#loginModal"><span class="glyphicon glyphicon-log-in"></span> Login</button>
+		</div>
+	</div>
+</nav>
+
+<!-- Login Modal -->
+<div class="modal fade" id="loginModal" tabindex="-1" role="dialog" aria-labelledby="loginModalLabel" aria-hidden="true">
+	<div class="modal-dialog" style="max-width: 300px;">
+		<form id="loginForm" role="form" autocomplete="off">
+			<div class="modal-content">
+				<div class="modal-header">
+				  <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+				  <h4 class="modal-title">Login</h4>
+				</div>
+				<div class="modal-body">
+					<div class="form-group">
+						<input type="text" class="form-control" id="loginUsername" name="loginUsername" placeholder="Username">
+						<span class="help-block" id="loginUsernameHelper"></span>
+					</div>
+					<div class="form-group">
+						<input type="password" class="form-control" id="loginPassword" name="loginPassword" placeholder="Password">
+						<span class="help-block" id="loginPasswordHelper"></span>
+					</div>
+				</div>
+				<div class="modal-footer">
+					<button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+					<button type="submit" class="btn btn-primary" id="loginButton">Login</button>
+				</div>
+			</div>
+		</form>
+	</div>
+</div>
+
+<!-- Register Modal -->
+<div class="modal fade" id="registerModal" tabindex="-1" role="dialog" aria-labelledby="registerModalLabel" aria-hidden="true">
+	<div class="modal-dialog" style="max-width: 400px;">
+		<form id="registerForm" role="form">
+			<div class="modal-content">
+				<div class="modal-header">
+				  <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+				  <h4 class="modal-title">Register</h4>
+				</div>
+				<div class="modal-body">
+					<div class="form-group">
+						<input type="text" class="form-control" id="registerUsername" name="registerUsername" placeholder="Username">
+						<span class="help-block" id="registerUsernameHelper"></span>
+					</div>
+					<div class="form-group">
+						<input type="password" class="form-control" id="registerPassword" name="registerPassword" placeholder="Password">
+						<span class="help-block" id="registerPasswordHelper"></span>
+					</div>
+					<div class="form-group">
+						<input type="password" class="form-control" id="registerConfirmPassword" name="registerConfirmPassword" placeholder="Confirm Password">
+						<span class="help-block" id="registerCPasswordHelper"></span>
+					</div>
+					<hr>
+					<div class="form-group">
+						<input type="email" class="form-control" id="registerEmail" name="registerEmail" placeholder="Email">
+						<span class="help-block" id="registerEmailHelper"></span>
+					</div>
+					<div class="form-group">
+						<input type="email" class="form-control" id="registerConfirmEmail" name="registerConfirmEmail" placeholder="Confirm Email">
+						<span class="help-block" id="registerCEmailHelper"></span>
+					</div>
+					<hr>
+					<div class="form-group">
+						<input type="text" class="form-control" id="registerFirstname" name="registerFirstname" placeholder="Firstname">
+						<span class="help-block" id="registerFirstnameHelper"></span>
+					</div>
+					<div class="form-group">
+						<input type="text" class="form-control" id="registerLastname" name="registerLastname" placeholder="Lastname">
+						<span class="help-block" id="registerLastnameHelper"></span>
+					</div>
+				</div>
+				<div class="modal-footer">
+					<button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+					<button type="submit" class="btn btn-primary" id="registerButton">Register</button>
+				</div>
+			</div>
+		</form>
+	</div>
+</div>
+
+<!-- Edit Profile Modal -->
+<div class="modal fade" id="editProfileModal" tabindex="-1" role="dialog" aria-labelledby="editProfileModalLabel" aria-hidden="true">
+	<div class="modal-dialog">
+		<form id="editProfileForm" role="form">
+			<div class="modal-content">
+				<div class="modal-header">
+					<button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+					<h4 class="modal-title">Edit Profile</h4>
+				</div>
+				<div class="modal-body">
+					<div class="form-group">
+						<label>Username</label>
+						<p class="form-control-static" id="editProfileUsername"></p>
+					</div>
+					<div class="form-group">
+						<label>Register Time</label>
+						<p class="form-control-static" id="editProfileRegisterTime"></p>
+					</div>
+					<hr>
+					<div class="form-group">
+						<label for="editProfileEmail">Email</label>
+						<input type="email" class="form-control" id="editProfileEmail" name="editProfileEmail" placeholder="Email">
+						<span class="help-block" id="editProfileEmailHelper"></span>
+					</div>
+					<div class="form-group">
+						<label for="editProfileConfirmEmail">Confirm Email</label>
+						<input type="email" class="form-control" id="editProfileConfirmEmail" name="editProfileConfirmEmail" placeholder="Confirm Email">
+						<span class="help-block" id="editProfileCEmailHelper"></span>
+					</div>
+					<hr>
+					<div class="form-group">
+						<label for="editProfileFirstname">Firstname</label>
+						<input type="text" class="form-control" id="editProfileFirstname" name="editProfileFirstname" placeholder="Firstname">
+						<span class="help-block" id="editProfileFirstnameHelper"></span>
+					</div>
+					<div class="form-group">
+						<label for="editProfileLastname">Lastname</label>
+						<input type="text" class="form-control" id="editProfileLastname" name="editProfileLastname" placeholder="Lastname">
+						<span class="help-block" id="editProfileLastnameHelper"></span>
+					</div>
+				</div>
+				<div class="modal-footer">
+					<button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+					<button type="submit" class="btn btn-primary" id="editProfileButton">Edit</button>
+				</div>
+			</div>
+		</form>
+	</div>
+</div>
+
+<!-- Change Password Modal -->
+<div class="modal fade" id="changePasswordModal" tabindex="-1" role="dialog" aria-labelledby="changePasswordModalLabel" aria-hidden="true">
+	<div class="modal-dialog" style="max-width: 400px;">
+		<form id="changePasswordForm" role="form">
+			<div class="modal-content">
+				<div class="modal-header">
+					<button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+					<h4 class="modal-title">Change Password</h4>
+				</div>
+				<div class="modal-body">
+					<div class="form-group">
+						<label for="changePasswordNewPassword">New Password</label>
+						<input type="password" class="form-control" id="changePasswordNewPassword" name="changePasswordNewPassword" placeholder="New Password">
+						<span class="help-block" id="changePasswordNewPasswordHelper"></span>
+					</div>
+					<div class="form-group">
+						<label for="changePasswordConfirmPassword">Confirm Password</label>
+						<input type="password" class="form-control" id="changePasswordConfirmPassword" name="changePasswordConfirmPassword" placeholder="Confirm Password">
+						<span class="help-block" id="changePasswordCPasswordHelper"></span>
+					</div>
+					<div class="form-group">
+						<label for="changePasswordOldPassword">Old Password</label>
+						<input type="password" class="form-control" id="changePasswordOldPassword" name="changePasswordOldPassword" placeholder="Old Password">
+						<span class="help-block" id="changePasswordOldPasswordHelper"></span>
+					</div>
+				</div>
+				<div class="modal-footer">
+					<button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+					<button type="submit" class="btn btn-primary" id="changePasswordButton">Change</button>
+				</div>
+			</div>
+		</form>
+	</div>
+</div>
+
+<!-- Edit Recipe Modal -->
+<div class="modal fade" id="editRecipeModal" tabindex="-1" role="dialog" aria-labelledby="editRecipeModalLabel" aria-hidden="true">
+	<div class="modal-dialog" style="width: 60%;">
+		<form id="editRecipeForm" role="form">
+			<div class="modal-content">
+				<div class="modal-header">
+					<button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+					<h4 class="modal-title">Edit Recipe</h4>
+				</div>
+				<div class="modal-body">
+					<div class="form-group" style="max-width: 60%;">
+						<label for="recipeName">Recipe Name</label>
+						<input type="text" class="form-control" id="recipeName" name="recipeName" placeholder="Recipe Name">
+						<span class="help-block" id="recipeNameHelper"></span>
+					</div>
+					<div class="form-group" style="max-width: 60%;">
+						<label for="recipePicture">New Picture</label>
+						<input type="file" id="recipePicture" name="recipePicture">
+						<span class="help-block">1 MB file size limit.<div id="recipePictureHelper"></div></span>
+					</div>
+					<div class="form-group">
+						<label for="recipeDescription">Recipe Description</label>
+						<textarea class="form-control" id="recipeDescription" name="recipeDescription" rows="5" placeholder="Recipe Description" style="resize: none;"></textarea>
+						<span class="help-block" id="recipeDescriptionHelper"></span>
+					</div>
+					<hr>
+					<div class="form-group">
+						<label>Recipe Step List</label>
+						<div id="recipeStepEmpty">&laquo; No Step List &raquo;</div>
+						<span class="help-block" id="recipeStepListHelper"></span>
+						<ol id="recipeStepList">
+						</ol>
+					</div>
+					<div class="form-group">
+						<label for="recipeStep">Recipe Step</label>
+						<textarea class="form-control" id="recipeStep" name="recipeStep" rows="3" placeholder="Recipe Step" style="resize: none;"></textarea>
+						<span class="help-block" id="recipeStepHelper"></span>
+						<button type="button" class="btn btn-default" id="recipeStepAdd" style="margin-top: 5px;">
+							<span class="glyphicon glyphicon-plus"></span> Add Step
+						</button>
+					</div>
+				</div>
+				<div class="modal-footer">
+					<button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+					<button type="submit" class="btn btn-primary" id="editRecipeButton">Submit</button>
+				</div>
+			</div>
+		</form>
+	</div>
+</div>
+
+<!-- Confirmation Modal -->
+<div class="modal fade" id="confirmModal" tabindex="-1" role="dialog" aria-labelledby="confirmModalLabel" aria-hidden="true">
+	<div class="modal-dialog">
+		<div class="modal-content">
+			<div class="modal-header">
+				<button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+				<h4 class="modal-title">Remove Recipe</h4>
+			</div>
+			<div class="modal-body">
+				<div>Are you sure to remove this recipe?</div>
+			</div>
+			<div class="modal-footer">
+				<button type="button" class="btn btn-default" data-dismiss="modal" id="removeRecipeDeclineButton">No</button>
+				<button type="button" class="btn btn-danger" id="removeRecipeAcceptButton">Yes</button>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Loading Modal -->
+<div class="modal fade" id="loadingModal" tabindex="-1" role="dialog" data-backdrop="static" data-keyboard="false" aria-labelledby="loadingModalLabel" aria-hidden="true">
+	<div class="modal-dialog">
+		<div class="modal-content">
+			<div class="modal-body text-center">
+				<img src="img/progress_ring.gif" alt="Loading...">
+				<div><h3 id="loadingMsg">Loading...</h3></div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Result Modal -->
+<div class="modal fade" id="resultModal" tabindex="-1" role="dialog"  aria-labelledby="resultModalLabel" aria-hidden="true">
+	<div class="modal-dialog">
+		<div class="modal-content">
+			<div class="modal-header">
+				<button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+				<h4 class="modal-title" id="resultTitle"></h4>
+			</div>
+			<div class="modal-body" id="resultBody">
+			</div>
+			<div class="modal-footer">
+				<button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+			</div>
+		</div>
+	</div>
+</div>
+
+<!-- Go to Top -->
+<div id="goTop" class="text-center" style="position: fixed; bottom: 30px; right: 30px; z-index: 999; display: none;">
+	<a href="#" style="outline: none; text-decoration: none;">
+		<img src="img/chevron_up.png" width="50" height="50" alt="Go to top">
+		<div>Go to top</div>
+	</a>
+</div>
+
+<!-- Main Area -->
+<div style="padding-top: 20px; padding-left: 50px; padding-right: 50px;">
+	<div id="recipeControl" class="text-right" style="display: none;">
+		<button type="button" id="menuEditRecipeButton" class="btn btn-default">
+			<span class="glyphicon glyphicon-edit"></span> Edit
+		</button>
+		<button type="button" id="menuRemoveRecipeButton" class="btn btn-danger">
+			<span class="glyphicon glyphicon-remove"></span> Delete
+		</button>
+	</div>
+	<div id="recipePanel" class="panel panel-primary" style="margin-top: 20px; display: none">
+		<div class="panel-heading">
+			<h4 class="panel-title" style="font-size: 24px; font-weight: bold;"></h4>
+		</div>
+		<div class="panel-body" style="font-size: 24px;">
+			<div class="text-center">
+				<img>
+			</div>
+			<div style="margin-top: 20px; margin-left: 30px; margin-right: 30px;">
+				<p style="word-wrap: break-word;"></p>
+			</div>
+			<hr>
+			<div style="margin-left: 30px; margin-right: 30px;">
+				<div>Steps:</div>
+				<ol style="margin-top: 5px;">
+				</ol>
+			</div>
+		</div>
+	</div>
+	<div class="text-center" id="loadingIndicator">
+		<img src="img/progress_ring.gif" alt="Loading...">
+		<div><h3>Loading...</h3></div>
+	</div>
+	<div class="panel panel-info" id="recipeEmptyPanel" style="display: none;">
+		<div class="panel-heading">
+			<h4 class="panel-title" style="font-weight: bold;">No Content</h4>
+		</div>
+		<div class="panel-body">
+			No Content
+		</div>
+	</div>
+	<hr>
+	<div id="commentPanelTemplate" class="panel panel-default" style="display: none;">
+		<div class="panel-heading">
+			<h4 class="panel-title">By: <span></span></h4>
+		</div>
+		<div class="panel-body">
+		</div>
+	</div>
+	<div style="font-size: 24px;">Comment:</div>
+	<div class="text-center" id="commentLoadingIndicator">
+		<img src="img/progress_ring.gif" alt="Loading...">
+		<div><h3>Loading...</h3></div>
+	</div>
+	<div id="commentContent" style="margin-top: 10px;">
+	</div>
+	<div class="panel panel-info" id="commentEmptyPanel" style="display: none;">
+		<div class="panel-heading">
+			<h4 class="panel-title" style="font-weight: bold;">No Comment</h4>
+		</div>
+		<div class="panel-body">
+			No Comment
+		</div>
+	</div>
+	<div id="newCommentPanel" class="panel panel-primary">
+		<div class="panel-heading">
+			<h4 class="panel-title">New Comment</h4>
+		</div>
+		<div class="panel-body">
+			<form id="commentForm" role="form">
+				<div class="form-group">
+					<textarea class="form-control" rows="3" id="comment" name="comment" placeholder="Comment" style="resize: none;"></textarea>
+					<span class="help-block" id="commentHelper"></span>
+				</div>
+				<div class="form-group">
+					<button type="submit" class="btn btn-primary" id="newCommentButton">Post</button>
+				</div>
+			</form>
+		</div>
+	</div>
+</div>
+</body>
+</html>
