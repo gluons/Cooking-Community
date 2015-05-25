@@ -1,4 +1,4 @@
 Cooking-Community
 =================
 
-My web programming project.
+My first web programming project.
